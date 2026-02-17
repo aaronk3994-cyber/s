@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>One-Shot Extraction | GitHub Game</title>
+    <style>
+        :root {
+            --bg-color: #0d1117;
+            --canvas-bg: #161b22;
+            --accent: #58a6ff;
+            --danger: #f85149;
+            --gold: #d29922;
+        }
+
+        body {
+            margin: 0;
+            background-color: var(--bg-color);
+            color: white;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .stats {
+            margin-bottom: 10px;
+            font-size: 1.2rem;
+            font-weight: 600;
+            display: flex;
+            gap: 20px;
+        }
+
+        #ammo-ui { color: var(--gold); }
+        
+        canvas {
+            background-color: var(--canvas-bg);
+            border: 2px solid #30363d;
+            border-radius: 6px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+            cursor: crosshair;
+        }
+
+        .controls {
+            margin-top: 15px;
+            color: #8b949e;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="stats">
+        <div>ENEMIES: <span id="enemy-count">3</span></div>
+        <div id="ammo-ui">AMMO: <span id="ammo-status">READY</span></div>
+    </div>
+
+    <canvas id="gameCanvas" width="800" height="500"></canvas>
+
+    <div class="controls">
+        [WASD] Move | [L-Click] Fire | [Walk over Bullet] Reload
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const enemyUI = document.getElementById('enemy-count');
+        const ammoUI = document.getElementById('ammo-status');
+
+        // Game State
+        let player = { x: 400, y: 250, size: 20, speed: 4, hasAmmo: true, alive: true, flash: 0 };
+        let bullet = { x: 0, y: 0, vx: 0, vy: 0, active: false, onGround: false };
+        let enemies = [
+            { x: 100, y: 100, size: 20, alive: true },
+            { x: 700, y: 100, size: 20, alive: true },
+            { x: 400, y: 450, size: 20, alive: true }
+        ];
+        let keys = {};
+
+        // Input Listeners
+        window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+        window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+        
+        canvas.addEventListener('mousedown', e => {
+            if (player.hasAmmo && player.alive) {
+                const rect = canvas.getBoundingClientRect();
+                const targetX = e.clientX - rect.left;
+                const targetY = e.clientY - rect.top;
+                const angle = Math.atan2(targetY - player.y, targetX - player.x);
+
+                bullet = {
+                    x: player.x,
+                    y: player.y,
+                    vx: Math.cos(angle) * 12,
+                    vy: Math.sin(angle) * 12,
+                    active: true,
+                    onGround: false
+                };
+
+                player.hasAmmo = false;
+                player.flash = 5; // Muzzle flash duration
+                ammoUI.innerText = "EMPTY";
+                ammoUI.style.color = "#f85149";
+            }
+        });
+
+        function update() {
+            if (!player.alive) return;
+
+            // Player Movement
+            if (keys['w'] && player.y > 10) player.y -= player.speed;
+            if (keys['s'] && player.y < canvas.height - 10) player.y += player.speed;
+            if (keys['a'] && player.x > 10) player.x -= player.speed;
+            if (keys['d'] && player.x < canvas.width - 10) player.x += player.speed;
+
+            // Bullet Logic
+            if (bullet.active && !bullet.onGround) {
+                bullet.x += bullet.vx;
+                bullet.y += bullet.vy;
+
+                // Hit detection
+                enemies.forEach(en => {
+                    if (en.alive && Math.hypot(bullet.x - en.x, bullet.y - en.y) < 20) {
+                        en.alive = false;
+                        bullet.onGround = true;
+                    }
+                });
+
+                // Wall bounds
+                if (bullet.x < 0 || bullet.x > canvas.width || bullet.y < 0 || bullet.y > canvas.height) {
+                    bullet.onGround = true;
+                }
+            }
+
+            // Pickup Logic
+            if (bullet.onGround && Math.hypot(player.x - bullet.x, player.y - bullet.y) < 25) {
+                player.hasAmmo = true;
+                bullet.active = false;
+                ammoUI.innerText = "READY";
+                ammoUI.style.color = "#d29922";
+            }
+
+            // Enemy AI & Collision
+            let count = 0;
+            enemies.forEach(en => {
+                if (en.alive) {
+                    count++;
+                    const angle = Math.atan2(player.y - en.y, player.x - en.x);
+                    en.x += Math.cos(angle) * 1.2;
+                    en.y += Math.sin(angle) * 1.2;
+
+                    if (Math.hypot(player.x - en.x, player.y - en.y) < 20) {
+                        player.alive = false;
+                        setTimeout(() => location.reload(), 2000);
+                    }
+                }
+            });
+            enemyUI.innerText = count;
+            if (count === 0) {
+                ammoUI.innerText = "MISSION COMPLETE";
+                ammoUI.style.color = "#3fb950";
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw Bullet
+            if (bullet.active) {
+                ctx.fillStyle = bullet.onGround ? "#d29922" : "#ffffff";
+                ctx.beginPath();
+                ctx.arc(bullet.x, bullet.y, 4, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Draw Enemies
+            ctx.fillStyle = "#f85149";
+            enemies.forEach(en => {
+                if (en.alive) ctx.fillRect(en.x - 10, en.y - 10, 20, 20);
+            });
+
+            // Draw Player & Muzzle Flash
+            if (player.alive) {
+                if (player.flash > 0) {
+                    ctx.fillStyle = "rgba(255, 255, 255, " + (player.flash / 5) + ")";
+                    ctx.beginPath();
+                    ctx.arc(player.x, player.y, 40, 0, Math.PI * 2);
+                    ctx.fill();
+                    player.flash--;
+                }
+                ctx.fillStyle = "#58a6ff";
+                ctx.fillRect(player.x - 10, player.y - 10, 20, 20);
+            } else {
+                ctx.fillStyle = "white";
+                ctx.font = "30px Arial";
+                ctx.fillText("WASTED", canvas.width/2 - 60, canvas.height/2);
+            }
+
+            requestAnimationFrame(() => {
+                update();
+                draw();
+            });
+        }
+
+        draw();
+    </script>
+</body>
+</html>
