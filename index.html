@@ -1,165 +1,86 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>One-Shot Extraction | Mobile Pro</title>
-    <style>
-        :root { --bg: #0d1117; --accent: #58a6ff; --gold: #d29922; --danger: #f85149; }
-        body { margin: 0; background: var(--bg); color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; touch-action: none; }
-        
-        /* UI Styling */
-        .ui-container { display: flex; gap: 10px; margin-bottom: 5px; z-index: 10; font-size: 0.8rem; }
-        .stat-card { background: rgba(22, 27, 34, 0.9); padding: 5px 15px; border-radius: 8px; border: 1px solid #30363d; text-align: center; }
-        
-        canvas { background: #161b22; border: 1px solid #30363d; border-radius: 10px; max-width: 95vw; max-height: 70vh; touch-action: none; }
-
-        /* Joystick Styling */
-        #joystick-container {
-            position: absolute; bottom: 40px; left: 40px;
-            width: 120px; height: 120px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.2);
-            display: none; /* Only shows on touch devices */
-        }
-        #joystick-knob {
-            position: absolute; top: 35px; left: 35px;
-            width: 50px; height: 50px;
-            background: var(--accent);
-            border-radius: 50%; opacity: 0.8;
-        }
-
-        #overlay { position: absolute; pointer-events: none; text-align: center; }
-        .game-over { color: var(--danger); font-size: 3rem; font-weight: 900; }
-    </style>
-</head>
-<body>
-
-    <div class="ui-container">
-        <div class="stat-card">SCORE: <span id="score">0</span></div>
-        <div class="stat-card">LVL: <span id="lvl">1</span></div>
-        <div class="stat-card">AMMO: <span id="ammo-status">READY</span></div>
-    </div>
-
-    <div id="overlay"></div>
-    <canvas id="gameCanvas" width="900" height="550"></canvas>
-
-    <div id="joystick-container">
-        <div id="joystick-knob"></div>
-    </div>
-
-<script>
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-const joystick = document.getElementById('joystick-container');
-const knob = document.getElementById('joystick-knob');
 
 // Game State
 let score = 0, currentLevel = 1, shake = 0;
 let player = { x: 450, y: 275, size: 22, speed: 4.5, hasAmmo: true, alive: true, flash: 0, angle: 0 };
 let bullet = { x: 0, y: 0, vx: 0, vy: 0, active: false, onGround: false };
-let enemies = [], keys = {};
+let enemies = [];
+let enemyProjectiles = []; // New: Boss lasers
+let keys = {};
 
-// Joystick Logic
-let joyX = 0, joyY = 0, isTouching = false;
-if ('ontouchstart' in window) joystick.style.display = 'block';
-
-window.addEventListener('touchstart', (e) => {
-    const touch = e.touches[0];
-    const rect = joystick.getBoundingClientRect();
-    const dist = Math.hypot(touch.clientX - (rect.left + 60), touch.clientY - (rect.top + 60));
-    
-    if (dist < 80) isTouching = true;
-    else if (player.hasAmmo && player.alive) shoot(touch.clientX, touch.clientY);
-});
-
-window.addEventListener('touchmove', (e) => {
-    if (!isTouching) return;
-    const touch = e.touches[0];
-    const rect = joystick.getBoundingClientRect();
-    const centerX = rect.left + 60, centerY = rect.top + 60;
-    
-    let dx = touch.clientX - centerX;
-    let dy = touch.clientY - centerY;
-    const dist = Math.hypot(dx, dy);
-    const maxDist = 40;
-
-    if (dist > maxDist) {
-        dx *= maxDist / dist;
-        dy *= maxDist / dist;
-    }
-
-    joyX = dx / maxDist;
-    joyY = dy / maxDist;
-    knob.style.transform = `translate(${dx}px, ${dy}px)`;
-});
-
-window.addEventListener('touchend', () => {
-    isTouching = false;
-    joyX = 0; joyY = 0;
-    knob.style.transform = `translate(0,0)`;
-});
-
-// PC Controls
-window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
-window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
-canvas.addEventListener('mousedown', (e) => shoot(e.clientX, e.clientY));
-
-function shoot(targetX, targetY) {
-    if (!player.hasAmmo || !player.alive) return;
-    const rect = canvas.getBoundingClientRect();
-    const angle = Math.atan2((targetY * (canvas.height/rect.height)) - player.y, (targetX * (canvas.width/rect.width)) - player.x);
-    
-    bullet = { x: player.x, y: player.y, vx: Math.cos(angle)*15, vy: Math.sin(angle)*15, active: true, onGround: false };
-    player.hasAmmo = false;
-    player.flash = 6;
-    shake = 10;
-    document.getElementById('ammo-status').innerText = "OUT";
-}
+// Joystick logic (Keep previous touch logic here...)
 
 function initLevel(lvl) {
     enemies = [];
+    enemyProjectiles = [];
     player.x = 450; player.y = 275;
     player.hasAmmo = true;
     bullet.active = false;
-    for(let i=0; i<2+lvl; i++) {
-        enemies.push({ x: Math.random()*900, y: Math.random()*50 > 0.5 ? 0 : 550, size: 22, speed: 1.2 + (lvl*0.1), alive: true, angle: 0 });
+
+    if (lvl % 10 === 0) {
+        // BOSS LEVEL
+        enemies.push({ 
+            x: 100, y: 100, size: 50, speed: 1, 
+            hp: 3, isBoss: true, alive: true, 
+            angle: 0, lastShot: 0, shootDelay: 400 // Matches player fire speed
+        });
+    } else {
+        // NORMAL LEVEL
+        for(let i=0; i < 2 + lvl; i++) {
+            enemies.push({ x: Math.random()*900, y: Math.random()*550, size: 22, speed: 1.2 + (lvl*0.1), alive: true, hp: 1, isBoss: false });
+        }
     }
+    document.getElementById('lvl').innerText = lvl;
 }
 
 function update() {
     if(!player.alive) return;
     if (shake > 0) shake *= 0.9;
 
-    // Movement (Combined Joystick + Keyboard)
-    let moveX = joyX || (keys['d'] ? 1 : keys['a'] ? -1 : 0);
-    let moveY = joyY || (keys['s'] ? 1 : keys['w'] ? -1 : 0);
-    
+    // Player Movement (Joystick/Keys)
+    let moveX = (keys['d'] ? 1 : keys['a'] ? -1 : 0);
+    let moveY = (keys['s'] ? 1 : keys['w'] ? -1 : 0);
     player.x += moveX * player.speed;
     player.y += moveY * player.speed;
 
-    // Keep player in bounds
-    player.x = Math.max(20, Math.min(880, player.x));
-    player.y = Math.max(20, Math.min(530, player.y));
-
-    if (moveX !== 0 || moveY !== 0) player.angle = Math.atan2(moveY, moveX);
-
-    // Bullet & Enemy Logic (Same as before)
+    // Player Bullet Logic
     if(bullet.active && !bullet.onGround) {
         bullet.x += bullet.vx; bullet.y += bullet.vy;
         enemies.forEach(en => {
-            if(en.alive && Math.hypot(bullet.x-en.x, bullet.y-en.y) < 22) {
-                en.alive = false; bullet.onGround = true;
+            if(en.alive && Math.hypot(bullet.x-en.x, bullet.y-en.y) < en.size) {
+                en.hp--;
+                shake = 8;
+                if(en.hp <= 0) en.alive = false;
+                bullet.onGround = true; // Bullet drops even if boss isn't dead
             }
         });
         if(bullet.x<0 || bullet.x>900 || bullet.y<0 || bullet.y>550) bullet.onGround = true;
     }
 
-    if(bullet.onGround && Math.hypot(player.x-bullet.x, player.y-bullet.y) < 25) {
-        player.hasAmmo = true; bullet.active = false;
-        document.getElementById('ammo-status').innerText = "READY";
-    }
+    // Boss Shooting Logic
+    enemies.forEach(en => {
+        if(en.alive && en.isBoss) {
+            let now = Date.now();
+            if(now - en.lastShot > en.shootDelay) {
+                let ang = Math.atan2(player.y - en.y, player.x - en.x);
+                enemyProjectiles.push({ 
+                    x: en.x, y: en.y, 
+                    vx: Math.cos(ang) * 10, vy: Math.sin(ang) * 10 
+                });
+                en.lastShot = now;
+            }
+        }
+    });
 
+    // Boss Lasers vs Player
+    enemyProjectiles.forEach((p, index) => {
+        p.x += p.vx; p.y += p.vy;
+        if(Math.hypot(p.x - player.x, p.y - player.y) < player.size) player.alive = false;
+        if(p.x < 0 || p.x > 900 || p.y < 0 || p.y > 550) enemyProjectiles.splice(index, 1);
+    });
+
+    // Enemy AI & Player Death
     let aliveCount = 0;
     enemies.forEach(en => {
         if(en.alive) {
@@ -167,11 +88,11 @@ function update() {
             let ang = Math.atan2(player.y-en.y, player.x-en.x);
             en.x += Math.cos(ang) * en.speed;
             en.y += Math.sin(ang) * en.speed;
-            if(Math.hypot(player.x-en.x, player.y-en.y) < 22) player.alive = false;
+            if(Math.hypot(player.x-en.x, player.y-en.y) < en.size) player.alive = false;
         }
     });
 
-    if(aliveCount === 0) { score += 500; currentLevel++; initLevel(currentLevel); }
+    if(aliveCount === 0) { currentLevel++; initLevel(currentLevel); }
 }
 
 function draw() {
@@ -179,16 +100,47 @@ function draw() {
     if (shake > 0.5) ctx.translate(Math.random()*shake, Math.random()*shake);
     ctx.clearRect(0, 0, 900, 550);
 
-    // Draw Entities
+    // Draw Boss Lasers
+    ctx.fillStyle = "#ff00ff";
+    enemyProjectiles.forEach(p => {
+        ctx.fillRect(p.x-2, p.y-2, 15, 4); // Laser look
+    });
+
+    // Draw Bullet
     if(bullet.active) {
         ctx.fillStyle = bullet.onGround ? "gold" : "white";
         ctx.beginPath(); ctx.arc(bullet.x, bullet.y, 6, 0, Math.PI*2); ctx.fill();
     }
-    enemies.forEach(en => { if(en.alive) drawAgent(en.x, en.y, en.angle, "#f85149"); });
+
+    // Draw Enemies & Bosses
+    enemies.forEach(en => {
+        if(en.alive) {
+            if(en.isBoss) {
+                drawBoss(en.x, en.y, en.hp);
+            } else {
+                drawAgent(en.x, en.y, Math.atan2(player.y-en.y, player.x-en.x), "#f85149");
+            }
+        }
+    });
+
     if(player.alive) drawAgent(player.x, player.y, player.angle, "#58a6ff");
+    else { ctx.fillStyle = "white"; ctx.fillText("GAME OVER", 400, 275); }
 
     ctx.restore();
     requestAnimationFrame(() => { update(); draw(); });
+}
+
+function drawBoss(x, y, hp) {
+    // Large armored look
+    ctx.fillStyle = "#941e1e";
+    ctx.fillRect(x-25, y-25, 50, 50);
+    ctx.strokeStyle = "white";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x-25, y-25, 50, 50);
+    
+    // Boss HP bar
+    ctx.fillStyle = "red";
+    ctx.fillRect(x-25, y-35, (hp/3)*50, 5);
 }
 
 function drawAgent(x, y, angle, color) {
@@ -200,6 +152,3 @@ function drawAgent(x, y, angle, color) {
 
 initLevel(1);
 draw();
-</script>
-</body>
-</html>
