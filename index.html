@@ -1,154 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>One-Shot: Extraction PRO</title>
+    <style>
+        :root { --bg: #0d1117; --accent: #58a6ff; --gold: #d29922; --danger: #f85149; }
+        body { margin: 0; background: var(--bg); color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; touch-action: none; }
+        .stat-card { background: rgba(22, 27, 34, 0.9); padding: 8px 20px; border-radius: 8px; border: 1px solid #30363d; margin: 10px; display: inline-block; }
+        canvas { background: #161b22; border: 2px solid #30363d; border-radius: 10px; cursor: crosshair; max-width: 95vw; max-height: 75vh; }
+        #joystick-container { position: absolute; bottom: 40px; left: 40px; width: 100px; height: 100px; background: rgba(255,255,255,0.1); border-radius: 50%; display: none; }
+        #joystick-knob { position: absolute; top: 25px; left: 25px; width: 50px; height: 50px; background: var(--accent); border-radius: 50%; opacity: 0.7; }
+    </style>
+</head>
+<body>
+
+    <div>
+        <div class="stat-card">LVL: <span id="lvl">1</span></div>
+        <div class="stat-card">SCORE: <span id="score">0</span></div>
+        <div class="stat-card">AMMO: <span id="ammo">READY</span></div>
+    </div>
+
+    <canvas id="gameCanvas" width="900" height="550"></canvas>
+    <div id="joystick-container"><div id="joystick-knob"></div></div>
+
+<script>
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
+const knob = document.getElementById('joystick-knob');
 
-// Game State
 let score = 0, currentLevel = 1, shake = 0;
-let player = { x: 450, y: 275, size: 22, speed: 4.5, hasAmmo: true, alive: true, flash: 0, angle: 0 };
+let player = { x: 450, y: 275, size: 22, speed: 4.5, hasAmmo: true, alive: true, angle: 0 };
 let bullet = { x: 0, y: 0, vx: 0, vy: 0, active: false, onGround: false };
-let enemies = [];
-let enemyProjectiles = []; // New: Boss lasers
-let keys = {};
+let enemies = [], enemyProjectiles = [], keys = {};
+let joyX = 0, joyY = 0;
 
-// Joystick logic (Keep previous touch logic here...)
+// Inputs
+window.onkeydown = e => keys[e.key.toLowerCase()] = true;
+window.onkeyup = e => keys[e.key.toLowerCase()] = false;
+
+canvas.onmousemove = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const my = (e.clientY - rect.top) * (canvas.height / rect.height);
+    player.angle = Math.atan2(my - player.y, mx - player.x);
+};
+
+canvas.onmousedown = () => shoot();
+
+function shoot() {
+    if (!player.hasAmmo || !player.alive) return;
+    bullet = { x: player.x, y: player.y, vx: Math.cos(player.angle)*14, vy: Math.sin(player.angle)*14, active: true, onGround: false };
+    player.hasAmmo = false;
+    shake = 10;
+    document.getElementById('ammo').innerText = "OUT";
+}
 
 function initLevel(lvl) {
-    enemies = [];
-    enemyProjectiles = [];
-    player.x = 450; player.y = 275;
-    player.hasAmmo = true;
-    bullet.active = false;
-
+    enemies = []; enemyProjectiles = [];
+    player.hasAmmo = true; bullet.active = false;
+    document.getElementById('ammo').innerText = "READY";
+    
     if (lvl % 10 === 0) {
-        // BOSS LEVEL
-        enemies.push({ 
-            x: 100, y: 100, size: 50, speed: 1, 
-            hp: 3, isBoss: true, alive: true, 
-            angle: 0, lastShot: 0, shootDelay: 400 // Matches player fire speed
-        });
+        enemies.push({ x: 100, y: 100, size: 50, speed: 1.2, hp: 3, isBoss: true, alive: true, lastShot: 0 });
     } else {
-        // NORMAL LEVEL
-        for(let i=0; i < 2 + lvl; i++) {
-            enemies.push({ x: Math.random()*900, y: Math.random()*550, size: 22, speed: 1.2 + (lvl*0.1), alive: true, hp: 1, isBoss: false });
+        for(let i=0; i<2+lvl; i++) {
+            enemies.push({ x: Math.random()*900, y: Math.random()*50>0.5?0:550, size: 22, speed: 1.3+(lvl*0.1), alive: true, hp: 1, isBoss: false });
         }
     }
     document.getElementById('lvl').innerText = lvl;
 }
 
 function update() {
-    if(!player.alive) return;
+    if (!player.alive) return;
     if (shake > 0) shake *= 0.9;
 
-    // Player Movement (Joystick/Keys)
-    let moveX = (keys['d'] ? 1 : keys['a'] ? -1 : 0);
-    let moveY = (keys['s'] ? 1 : keys['w'] ? -1 : 0);
-    player.x += moveX * player.speed;
-    player.y += moveY * player.speed;
+    // Movement
+    let mx = (keys['d'] ? 1 : keys['a'] ? -1 : 0);
+    let my = (keys['s'] ? 1 : keys['w'] ? -1 : 0);
+    player.x += mx * player.speed;
+    player.y += my * player.speed;
 
-    // Player Bullet Logic
-    if(bullet.active && !bullet.onGround) {
+    // Bullet vs Enemies
+    if (bullet.active && !bullet.onGround) {
         bullet.x += bullet.vx; bullet.y += bullet.vy;
         enemies.forEach(en => {
-            if(en.alive && Math.hypot(bullet.x-en.x, bullet.y-en.y) < en.size) {
-                en.hp--;
-                shake = 8;
-                if(en.hp <= 0) en.alive = false;
-                bullet.onGround = true; // Bullet drops even if boss isn't dead
+            if (en.alive && Math.hypot(bullet.x-en.x, bullet.y-en.y) < en.size) {
+                en.hp--; shake = 15;
+                if (en.hp <= 0) en.alive = false;
+                bullet.onGround = true;
             }
         });
         if(bullet.x<0 || bullet.x>900 || bullet.y<0 || bullet.y>550) bullet.onGround = true;
     }
 
-    // Boss Shooting Logic
-    enemies.forEach(en => {
-        if(en.alive && en.isBoss) {
-            let now = Date.now();
-            if(now - en.lastShot > en.shootDelay) {
-                let ang = Math.atan2(player.y - en.y, player.x - en.x);
-                enemyProjectiles.push({ 
-                    x: en.x, y: en.y, 
-                    vx: Math.cos(ang) * 10, vy: Math.sin(ang) * 10 
-                });
-                en.lastShot = now;
-            }
-        }
-    });
+    // Ammo Pickup
+    if (bullet.onGround && Math.hypot(player.x-bullet.x, player.y-bullet.y) < 25) {
+        player.hasAmmo = true; bullet.active = false;
+        document.getElementById('ammo').innerText = "READY";
+    }
 
-    // Boss Lasers vs Player
-    enemyProjectiles.forEach((p, index) => {
-        p.x += p.vx; p.y += p.vy;
-        if(Math.hypot(p.x - player.x, p.y - player.y) < player.size) player.alive = false;
-        if(p.x < 0 || p.x > 900 || p.y < 0 || p.y > 550) enemyProjectiles.splice(index, 1);
-    });
-
-    // Enemy AI & Player Death
+    // Enemy AI & Boss Shooting
     let aliveCount = 0;
     enemies.forEach(en => {
-        if(en.alive) {
-            aliveCount++;
-            let ang = Math.atan2(player.y-en.y, player.x-en.x);
-            en.x += Math.cos(ang) * en.speed;
-            en.y += Math.sin(ang) * en.speed;
-            if(Math.hypot(player.x-en.x, player.y-en.y) < en.size) player.alive = false;
+        if (!en.alive) return;
+        aliveCount++;
+        let ang = Math.atan2(player.y-en.y, player.x-en.x);
+        en.x += Math.cos(ang) * en.speed;
+        en.y += Math.sin(ang) * en.speed;
+
+        if (en.isBoss && Date.now() - en.lastShot > 600) {
+            enemyProjectiles.push({ x: en.x, y: en.y, vx: Math.cos(ang)*8, vy: Math.sin(ang)*8 });
+            en.lastShot = Date.now();
         }
+        if (Math.hypot(player.x-en.x, player.y-en.y) < en.size) player.alive = false;
     });
 
-    if(aliveCount === 0) { currentLevel++; initLevel(currentLevel); }
+    enemyProjectiles.forEach((p, i) => {
+        p.x += p.vx; p.y += p.vy;
+        if (Math.hypot(p.x-player.x, p.y-player.y) < 15) player.alive = false;
+        if (p.x<0 || p.x>900 || p.y<0 || p.y>550) enemyProjectiles.splice(i, 1);
+    });
+
+    if (aliveCount === 0) { score += 100*currentLevel; currentLevel++; initLevel(currentLevel); document.getElementById('score').innerText = score; }
+}
+
+function drawAgent(x, y, angle, color, size) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    ctx.fillStyle = color;
+    ctx.fillRect(-size/2, -size/2, size, size);
+    ctx.fillStyle = "white";
+    ctx.fillRect(size/4, -size/3, size/4, size/4);
+    ctx.fillRect(size/4, size/12, size/4, size/4);
+    ctx.restore();
 }
 
 function draw() {
     ctx.save();
-    if (shake > 0.5) ctx.translate(Math.random()*shake, Math.random()*shake);
+    if (shake > 0.5) ctx.translate(Math.random()*shake-shake/2, Math.random()*shake-shake/2);
     ctx.clearRect(0, 0, 900, 550);
 
-    // Draw Boss Lasers
-    ctx.fillStyle = "#ff00ff";
-    enemyProjectiles.forEach(p => {
-        ctx.fillRect(p.x-2, p.y-2, 15, 4); // Laser look
-    });
-
-    // Draw Bullet
-    if(bullet.active) {
+    enemyProjectiles.forEach(p => { ctx.fillStyle = "#ff00ff"; ctx.fillRect(p.x-5, p.y-2, 10, 4); });
+    
+    if (bullet.active) {
         ctx.fillStyle = bullet.onGround ? "gold" : "white";
         ctx.beginPath(); ctx.arc(bullet.x, bullet.y, 6, 0, Math.PI*2); ctx.fill();
     }
 
-    // Draw Enemies & Bosses
-    enemies.forEach(en => {
-        if(en.alive) {
-            if(en.isBoss) {
-                drawBoss(en.x, en.y, en.hp);
-            } else {
-                drawAgent(en.x, en.y, Math.atan2(player.y-en.y, player.x-en.x), "#f85149");
-            }
-        }
-    });
-
-    if(player.alive) drawAgent(player.x, player.y, player.angle, "#58a6ff");
-    else { ctx.fillStyle = "white"; ctx.fillText("GAME OVER", 400, 275); }
+    enemies.forEach(en => { if(en.alive) drawAgent(en.x, en.y, Math.atan2(player.y-en.y, player.x-en.x), "#f85149", en.size); });
+    if (player.alive) drawAgent(player.x, player.y, player.angle, "#58a6ff", 24);
+    else { ctx.fillStyle = "white"; ctx.font = "40px Arial"; ctx.fillText("GAME OVER", 350, 275); }
 
     ctx.restore();
-    requestAnimationFrame(() => { update(); draw(); });
-}
-
-function drawBoss(x, y, hp) {
-    // Large armored look
-    ctx.fillStyle = "#941e1e";
-    ctx.fillRect(x-25, y-25, 50, 50);
-    ctx.strokeStyle = "white";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(x-25, y-25, 50, 50);
-    
-    // Boss HP bar
-    ctx.fillStyle = "red";
-    ctx.fillRect(x-25, y-35, (hp/3)*50, 5);
-}
-
-function drawAgent(x, y, angle, color) {
-    ctx.save(); ctx.translate(x, y); ctx.rotate(angle);
-    ctx.fillStyle = color; ctx.fillRect(-12, -12, 24, 24);
-    ctx.fillStyle = "white"; ctx.fillRect(5, -9, 6, 6); ctx.fillRect(5, 3, 6, 6);
-    ctx.restore();
+    requestAnimationFrame(draw);
+    update();
 }
 
 initLevel(1);
 draw();
+</script>
+</body>
+</html>
