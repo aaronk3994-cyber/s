@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>One-Shot Extraction | Fixed & Juicy</title>
+    <title>One-Shot | Danger Zone Build</title>
     <style>
         :root { --bg: #0d1117; --panel: #161b22; --accent: #58a6ff; --gold: #d29922; --danger: #f85149; }
         body { margin: 0; background: var(--bg); color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; touch-action: none; }
@@ -22,9 +22,9 @@
     <div class="ui-layer">
         <div class="card">LVL: <span id="lvl">1</span></div>
         <div class="card">SCORE: <span id="score">0</span></div>
-        <button id="wep-P" class="card wep-btn active" onclick="setWeapon('PISTOL')">PISTOL</button>
-        <button id="wep-S" class="card wep-btn" onclick="setWeapon('SHOTGUN')">SHOTGUN</button>
-        <button id="wep-X" class="card wep-btn" onclick="setWeapon('SNIPER')">SNIPER</button>
+        <button id="wep-P" class="card wep-btn active" onclick="setWeapon('PISTOL')">P</button>
+        <button id="wep-S" class="card wep-btn" onclick="setWeapon('SHOTGUN')">S</button>
+        <button id="wep-X" class="card wep-btn" onclick="setWeapon('SNIPER')">X</button>
     </div>
 
     <div id="msg-overlay"></div>
@@ -36,7 +36,6 @@ const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const msgOverlay = document.getElementById('msg-overlay');
 
-// --- AUDIO ---
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 function playShootSound() {
     const osc = audioCtx.createOscillator();
@@ -68,7 +67,7 @@ const WEAPONS = {
     SNIPER: { pellets: 1, spread: 0, speed: 28, color: "#00ffff", piercing: true, name: "X" }
 };
 
-let player = { x: 450, y: 275, size: 24, speed: 4.8, hasAmmo: true, alive: true, angle: 0, flash: 0 };
+let player = { x: 450, y: 275, size: 24, speed: 4.8, hasAmmo: true, alive: true, angle: 0 };
 let enemies = [], projectiles = [], enemyLasers = [], particles = [];
 let score = 0, currentLevel = 1, shake = 0, weapon = WEAPONS.PISTOL;
 let keys = {}, joyX = 0, joyY = 0, touchId = null;
@@ -104,7 +103,6 @@ function spawnParticles(x, y, color) {
 
 function respawn() { score = 0; currentLevel = 1; document.getElementById('score').innerText = "0"; initLevel(1); }
 
-// --- FIXED INPUTS ---
 window.onkeydown = e => keys[e.key.toLowerCase()] = true;
 window.onkeyup = e => keys[e.key.toLowerCase()] = false;
 
@@ -117,15 +115,13 @@ window.addEventListener('mousemove', e => {
 
 canvas.addEventListener('mousedown', () => shoot());
 
-// FIXED JOYSTICK
 window.addEventListener('touchstart', e => {
     if (audioCtx.state === 'suspended') audioCtx.resume();
     for(let t of e.changedTouches) {
         if(t.clientX < window.innerWidth/2 && touchId === null) {
             touchId = t.identifier;
             const joy = document.getElementById('joystick-container');
-            joy.style.display = 'block';
-            joy.style.left = (t.clientX - 50)+'px'; joy.style.top = (t.clientY - 50)+'px';
+            joy.style.display = 'block'; joy.style.left = (t.clientX - 50)+'px'; joy.style.top = (t.clientY - 50)+'px';
         } else { shoot(); }
     }
 }, {passive: false});
@@ -146,23 +142,20 @@ window.addEventListener('touchend', e => {
     for(let t of e.changedTouches) if(t.identifier === touchId) { 
         touchId = null; joyX = 0; joyY = 0; 
         document.getElementById('joystick-container').style.display = 'none';
-        document.getElementById('joystick-knob').style.transform = `translate(0px, 0px)`;
     }
 });
 
 function shoot() {
     if(!player.hasAmmo || !player.alive || levelLoading) return;
     if (audioCtx.state === 'suspended') audioCtx.resume();
-    playShootSound();
-    shake = 18;
+    playShootSound(); shake = 18;
     for(let i=0; i<weapon.pellets; i++) {
         let a = player.angle + (Math.random()-0.5) * weapon.spread;
         projectiles.push({ x: player.x, y: player.y, vx: Math.cos(a)*weapon.speed, vy: Math.sin(a)*weapon.speed, active: true, onGround: false, piercing: weapon.piercing });
     }
-    player.hasAmmo = false; player.flash = 6;
+    player.hasAmmo = false;
 }
 
-// --- CORE LOGIC ---
 function update() {
     if(!player.alive || levelLoading) return;
     if(shake > 0) shake *= 0.88;
@@ -193,8 +186,17 @@ function update() {
     enemies.forEach(en => {
         if(!en.alive) return;
         aliveCount++;
+        let dist = Math.hypot(player.x-en.x, player.y-en.y);
         let a = Math.atan2(player.y-en.y, player.x-en.x);
+        
         en.x += Math.cos(a)*en.speed; en.y += Math.sin(a)*en.speed;
+
+        // NEW: Proximity Laser Aura for Normal Enemies
+        if(!en.isBoss) {
+            let auraRadius = en.size * 2.5;
+            if(dist < auraRadius) player.alive = false;
+        }
+
         if(en.isBoss) {
             let now = Date.now();
             if(!en.isCharging && now - en.lastShot > 1800) { en.isCharging = true; en.chargeStart = now; }
@@ -203,7 +205,7 @@ function update() {
                 en.lastShot = now; en.isCharging = false;
             }
         }
-        if(Math.hypot(player.x-en.x, player.y-en.y) < en.size) player.alive = false;
+        if(dist < en.size) player.alive = false;
     });
 
     enemyLasers.forEach((l, i) => {
@@ -212,7 +214,6 @@ function update() {
         if(l.x<0 || l.x>900 || l.y<0 || l.y>550) enemyLasers.splice(i, 1);
     });
 
-    // FIXED: LEVEL UP CHECK
     if(aliveCount === 0 && !levelLoading) { 
         score += currentLevel * 50; currentLevel++; 
         document.getElementById('score').innerText = score;
@@ -224,7 +225,7 @@ function update() {
     }
 }
 
-function drawEntity(x, y, angle, color, size) {
+function drawEntity(x, y, angle, color, size, isEnemy) {
     ctx.save(); ctx.translate(x, y); ctx.rotate(angle);
     ctx.fillStyle = color; ctx.fillRect(-size/2, -size/2, size, size);
     ctx.fillStyle = "white"; ctx.fillRect(size/4, -size/3, size/4, size/4); ctx.fillRect(size/4, size/12, size/4, size/4);
@@ -248,6 +249,18 @@ function draw() {
 
     enemies.forEach(en => { if(en.alive) {
         let a = Math.atan2(player.y-en.y, player.x-en.x);
+        
+        // DRAW DANGER AURA
+        if(!en.isBoss) {
+            ctx.beginPath();
+            ctx.arc(en.x, en.y, en.size * 2.5, 0, Math.PI*2);
+            ctx.strokeStyle = "rgba(248, 81, 73, 0.4)";
+            ctx.setLineDash([5, 5]);
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
         if(en.isBoss && en.isCharging) {
             let ct = Date.now() - en.chargeStart;
             ctx.beginPath(); if(ct < 900) ctx.setLineDash([5, 5]);
@@ -255,10 +268,10 @@ function draw() {
             ctx.strokeStyle = ct > 900 ? "red" : "rgba(255,0,0,0.3)";
             ctx.lineWidth = ct > 900 ? 5 : 2; ctx.stroke(); ctx.setLineDash([]);
         }
-        drawEntity(en.x, en.y, a, "#f85149", en.size);
+        drawEntity(en.x, en.y, a, "#f85149", en.size, true);
     }});
 
-    if(player.alive) drawEntity(player.x, player.y, player.angle, "#58a6ff", 24);
+    if(player.alive) drawEntity(player.x, player.y, player.angle, "#58a6ff", 24, false);
 
     ctx.restore();
     update();
