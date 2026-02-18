@@ -11,7 +11,7 @@
         .card { background: var(--panel); padding: 10px 15px; border-radius: 8px; border: 1px solid #30363d; font-weight: bold; }
         .wep-btn { cursor: pointer; border: 1px solid #30363d; background: #21262d; color: #8b949e; transition: 0.2s; }
         .wep-btn.active { border-color: var(--accent); color: white; box-shadow: 0 0 10px rgba(88, 166, 255, 0.3); }
-        canvas { background: #000; border: 2px solid #30363d; border-radius: 12px; max-width: 95vw; max-height: 70vh; }
+        canvas { background: #000; border: 2px solid #30363d; border-radius: 12px; max-width: 95vw; max-height: 70vh; cursor: crosshair; }
         #joystick-container { position: absolute; width: 100px; height: 100px; background: rgba(255,255,255,0.1); border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); display: none; pointer-events: none; }
         #joystick-knob { position: absolute; width: 40px; height: 40px; background: var(--accent); border-radius: 50%; left: 30px; top: 30px; }
         #msg-overlay { position: absolute; font-weight: 900; text-align: center; pointer-events: none; text-shadow: 0 0 20px black; z-index: 20; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
@@ -36,18 +36,20 @@ const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const msgOverlay = document.getElementById('msg-overlay');
 
-// --- AUDIO SYSTEM ---
+// --- AUDIO ---
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 function playPing() {
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(880, audioCtx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(440, audioCtx.currentTime + 0.1);
-    gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
-    osc.connect(gain); gain.connect(audioCtx.destination);
-    osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+    try {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(440, audioCtx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+    } catch(e){}
 }
 
 const WEAPONS = {
@@ -68,8 +70,8 @@ function initLevel(lvl) {
     player.x = 450; player.y = 275; player.hasAmmo = true; player.alive = true;
     msgOverlay.innerHTML = "";
     
-    let enemyCount = lvl % 10 === 0 ? 1 : 2 + Math.floor(lvl * 0.5);
-    for(let i=0; i < enemyCount; i++) {
+    let count = (lvl % 10 === 0) ? 1 : 2 + Math.floor(lvl * 0.5);
+    for(let i=0; i < count; i++) {
         if(lvl % 10 === 0) {
             enemies.push({ x: 100, y: 100, size: 60, speed: 1.2, hp: 8, isBoss: true, alive: true, lastShot: Date.now(), chargeStart: 0, isCharging: false });
         } else {
@@ -90,13 +92,16 @@ function spawnParticles(x, y, color) {
 
 function respawn() { score = 0; currentLevel = 1; document.getElementById('score').innerText = "0"; initLevel(1); }
 
+// --- INPUTS (FIXED AIMING) ---
 window.onkeydown = e => keys[e.key.toLowerCase()] = true;
 window.onkeyup = e => keys[e.key.toLowerCase()] = false;
 
-canvas.onmousemove = e => {
+window.addEventListener('mousemove', e => {
     const r = canvas.getBoundingClientRect();
-    player.angle = Math.atan2((e.clientY - r.top)*(550/r.height) - player.y, (e.clientX - r.left)*(900/width) - player.x);
-};
+    const mouseX = (e.clientX - r.left) * (canvas.width / r.width);
+    const mouseY = (e.clientY - r.top) * (canvas.height / r.height);
+    player.angle = Math.atan2(mouseY - player.y, mouseX - player.x);
+});
 
 canvas.onmousedown = () => shoot();
 
@@ -106,8 +111,7 @@ window.addEventListener('touchstart', e => {
         if(t.clientX < window.innerWidth/2 && touchId === null) {
             touchId = t.identifier;
             const joy = document.getElementById('joystick-container');
-            joy.style.display = 'block';
-            joy.style.left = (t.clientX - 50)+'px'; joy.style.top = (t.clientY - 50)+'px';
+            joy.style.display = 'block'; joy.style.left = (t.clientX - 50)+'px'; joy.style.top = (t.clientY - 50)+'px';
         } else { shoot(); }
     }
 }, {passive: false});
@@ -147,6 +151,7 @@ function shoot() {
     player.hasAmmo = false; player.flash = 6; shake = 15;
 }
 
+// --- CORE ---
 function update() {
     if(!player.alive || levelLoading) return;
     if(shake > 0) shake *= 0.9;
@@ -168,7 +173,6 @@ function update() {
                     if(!p.piercing) p.onGround = true;
                 }
             });
-            // SNIPER FIX: Snap to edge if it skips past
             if(p.x < 10) { p.x = 10; p.onGround = true; }
             if(p.x > 890) { p.x = 890; p.onGround = true; }
             if(p.y < 10) { p.y = 10; p.onGround = true; }
@@ -211,6 +215,21 @@ function update() {
     }
 }
 
+// --- DRAWING (FIXED FACES) ---
+function drawEntity(x, y, angle, color, size) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    // Body
+    ctx.fillStyle = color;
+    ctx.fillRect(-size/2, -size/2, size, size);
+    // Eyes (The Face)
+    ctx.fillStyle = "white";
+    ctx.fillRect(size/4, -size/3, size/4, size/4);
+    ctx.fillRect(size/4, size/12, size/4, size/4);
+    ctx.restore();
+}
+
 function draw() {
     ctx.save();
     if(shake > 0.5) ctx.translate(Math.random()*shake-shake/2, Math.random()*shake-shake/2);
@@ -223,9 +242,7 @@ function draw() {
     enemyLasers.forEach(l => { ctx.fillStyle = "#ff00ff"; ctx.fillRect(l.x-8, l.y-3, 16, 6); });
     projectiles.forEach(p => {
         ctx.fillStyle = p.onGround ? "gold" : weapon.color;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.onGround ? 7 : 6 + pulse, 0, Math.PI*2);
-        ctx.fill();
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.onGround ? 7 : 6 + pulse, 0, Math.PI*2); ctx.fill();
         if(p.onGround) { ctx.shadowBlur = 10; ctx.shadowColor = "gold"; ctx.stroke(); ctx.shadowBlur = 0; }
     });
 
@@ -242,9 +259,7 @@ function draw() {
             ctx.strokeStyle = "red"; ctx.lineWidth = 4; ctx.strokeRect(en.x-30, en.y-30, 60, 60);
             ctx.fillStyle = "red"; ctx.fillRect(en.x-30, en.y-45, (en.hp/8)*60, 5);
         }
-        ctx.save(); ctx.translate(en.x, en.y); ctx.rotate(a);
-        ctx.fillStyle = "#f85149"; ctx.fillRect(-en.size/2, -en.size/2, en.size, en.size);
-        ctx.restore();
+        drawEntity(en.x, en.y, a, "#f85149", en.size);
     }});
 
     if(player.alive) {
@@ -253,9 +268,7 @@ function draw() {
             ctx.beginPath(); ctx.arc(player.x+Math.cos(player.angle)*25, player.y+Math.sin(player.angle)*25, 45, 0, Math.PI*2); 
             ctx.fill(); player.flash--; 
         }
-        ctx.save(); ctx.translate(player.x, player.y); ctx.rotate(player.angle);
-        ctx.fillStyle = "#58a6ff"; ctx.fillRect(-12, -12, 24, 24);
-        ctx.restore();
+        drawEntity(player.x, player.y, player.angle, "#58a6ff", 24);
     }
     ctx.restore();
     update();
