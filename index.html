@@ -1,3 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>One-Shot Extraction | Pro GitHub Build</title>
+    <style>
+        :root { --bg: #0d1117; --panel: #161b22; --accent: #58a6ff; --gold: #d29922; --danger: #f85149; }
+        body { margin: 0; background: var(--bg); color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; touch-action: none; }
+        
+        /* UI Header */
+        .ui-layer { position: absolute; top: 20px; display: flex; gap: 10px; z-index: 10; }
+        .card { background: var(--panel); padding: 10px 15px; border-radius: 8px; border: 1px solid #30363d; font-weight: bold; }
+        
+        .wep-btn { cursor: pointer; border: 1px solid #30363d; background: #21262d; color: #8b949e; transition: 0.2s; }
+        .wep-btn.active { border-color: var(--accent); color: white; box-shadow: 0 0 10px rgba(88, 166, 255, 0.3); }
+
+        canvas { background: #000; border: 2px solid #30363d; border-radius: 12px; max-width: 95vw; max-height: 70vh; }
+        
+        /* Joystick Styles */
+        #joystick-container { position: absolute; width: 100px; height: 100px; background: rgba(255,255,255,0.1); border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); display: none; pointer-events: none; }
+        #joystick-knob { position: absolute; width: 40px; height: 40px; background: var(--accent); border-radius: 50%; left: 30px; top: 30px; }
+        
+        #msg-overlay { position: absolute; font-size: 3rem; font-weight: 900; text-align: center; pointer-events: none; text-shadow: 0 0 20px black; z-index: 20; }
+    </style>
+</head>
+<body>
+
+    <div class="ui-layer">
+        <div class="card">LVL: <span id="lvl">1</span></div>
+        <div class="card">SCORE: <span id="score">0</span></div>
+        <button id="wep-P" class="card wep-btn active" onclick="setWeapon('PISTOL')">PISTOL</button>
+        <button id="wep-S" class="card wep-btn" onclick="setWeapon('SHOTGUN')">SHOTGUN</button>
+        <button id="wep-X" class="card wep-btn" onclick="setWeapon('SNIPER')">SNIPER</button>
+    </div>
+
+    <div id="msg-overlay"></div>
+    <canvas id="gameCanvas" width="900" height="550"></canvas>
+    <div id="joystick-container"><div id="joystick-knob"></div></div>
+
+<script>
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const msgOverlay = document.getElementById('msg-overlay');
@@ -14,7 +55,7 @@ let player = { x: 450, y: 275, size: 24, speed: 4.8, hasAmmo: true, alive: true,
 let enemies = [], projectiles = [], enemyLasers = [];
 let score = 0, currentLevel = 1, shake = 0, weapon = WEAPONS.PISTOL;
 let keys = {}, joyX = 0, joyY = 0, touchId = null;
-let levelLoading = true; // Prevents the "Instant Win" bug
+let levelLoading = true; 
 
 // --- INITIALIZATION ---
 function initLevel(lvl) {
@@ -22,11 +63,10 @@ function initLevel(lvl) {
     enemies = []; projectiles = []; enemyLasers = [];
     player.x = 450; player.y = 275; player.hasAmmo = true;
     
-    if (lvl % 10 === 0) { // BOSS LEVEL
+    if (lvl % 10 === 0) { 
         enemies.push({ x: 100, y: 100, size: 60, speed: 1.2, hp: 5, isBoss: true, alive: true, lastShot: 0 });
-    } else { // NORMAL
+    } else {
         for(let i=0; i < 2 + Math.floor(lvl * 0.5); i++) {
-            // Spawn enemies at edges so they don't appear on top of player
             let ex = Math.random() > 0.5 ? -50 : 950;
             let ey = Math.random() * 550;
             enemies.push({ x: ex, y: ey, size: 22, speed: 1.2 + (lvl * 0.05), hp: 1, isBoss: false, alive: true });
@@ -34,7 +74,6 @@ function initLevel(lvl) {
     }
     
     document.getElementById('lvl').innerText = lvl;
-    // Small delay to let the engine realize enemies exist
     setTimeout(() => { levelLoading = false; }, 100);
 }
 
@@ -49,14 +88,14 @@ canvas.onmousemove = e => {
 
 canvas.onmousedown = () => shoot();
 
-// Joystick & Touch Fix
 window.addEventListener('touchstart', e => {
     for(let t of e.changedTouches) {
         if(t.clientX < window.innerWidth/2 && touchId === null) {
             touchId = t.identifier;
-            document.getElementById('joystick-container').style.display = 'block';
-            document.getElementById('joystick-container').style.left = (t.clientX - 50)+'px';
-            document.getElementById('joystick-container').style.top = (t.clientY - 50)+'px';
+            const joy = document.getElementById('joystick-container');
+            joy.style.display = 'block';
+            joy.style.left = (t.clientX - 50)+'px';
+            joy.style.top = (t.clientY - 50)+'px';
         } else {
             shoot();
         }
@@ -104,7 +143,6 @@ function update() {
     if(!player.alive || levelLoading) return;
     if(shake > 0) shake *= 0.9;
 
-    // Movement Fix
     let mx = 0, my = 0;
     if (joyX !== 0 || joyY !== 0) { mx = joyX; my = joyY; }
     else {
@@ -116,7 +154,6 @@ function update() {
     player.x = Math.max(20, Math.min(880, player.x + mx * player.speed));
     player.y = Math.max(20, Math.min(530, player.y + my * player.speed));
 
-    // Bullet vs Enemy
     projectiles.forEach(p => {
         if(p.active && !p.onGround) {
             p.x += p.vx; p.y += p.vy;
@@ -134,7 +171,6 @@ function update() {
         }
     });
 
-    // Enemy AI
     let aliveCount = 0;
     enemies.forEach(en => {
         if(!en.alive) return;
@@ -149,17 +185,14 @@ function update() {
         if(Math.hypot(player.x-en.x, player.y-en.y) < en.size) player.alive = false;
     });
 
-    // Enemy Lasers
     enemyLasers.forEach((l, i) => {
         l.x += l.vx; l.y += l.vy;
         if(Math.hypot(l.x-player.x, l.y-player.y) < 15) player.alive = false;
         if(l.x<0 || l.x>900 || l.y<0 || l.y>550) enemyLasers.splice(i, 1);
     });
 
-    // Win Check
     if(aliveCount === 0 && !levelLoading) { 
-        score += currentLevel * 50; 
-        currentLevel++; 
+        score += currentLevel * 50; currentLevel++; 
         initLevel(currentLevel); 
         document.getElementById('score').innerText = score; 
     }
@@ -213,3 +246,6 @@ function draw() {
 
 initLevel(1);
 draw();
+</script>
+</body>
+</html>
