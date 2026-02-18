@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>One-Shot Extraction | Juice Build</title>
+    <title>One-Shot Extraction | Fixed & Juicy</title>
     <style>
         :root { --bg: #0d1117; --panel: #161b22; --accent: #58a6ff; --gold: #d29922; --danger: #f85149; }
         body { margin: 0; background: var(--bg); color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; touch-action: none; }
@@ -12,7 +12,7 @@
         .wep-btn { cursor: pointer; border: 1px solid #30363d; background: #21262d; color: #8b949e; transition: 0.2s; }
         .wep-btn.active { border-color: var(--accent); color: white; box-shadow: 0 0 10px rgba(88, 166, 255, 0.3); }
         canvas { background: #000; border: 2px solid #30363d; border-radius: 12px; max-width: 95vw; max-height: 70vh; cursor: crosshair; }
-        #joystick-container { position: absolute; width: 100px; height: 100px; background: rgba(255,255,255,0.1); border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); display: none; pointer-events: none; }
+        #joystick-container { position: absolute; width: 100px; height: 100px; background: rgba(255,255,255,0.1); border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); display: none; pointer-events: none; z-index: 100; }
         #joystick-knob { position: absolute; width: 40px; height: 40px; background: var(--accent); border-radius: 50%; left: 30px; top: 30px; }
         #msg-overlay { position: absolute; font-weight: 900; text-align: center; pointer-events: none; text-shadow: 0 0 20px black; z-index: 20; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
     </style>
@@ -36,16 +36,15 @@ const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const msgOverlay = document.getElementById('msg-overlay');
 
-// --- AUDIO SYSTEM ---
+// --- AUDIO ---
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
 function playShootSound() {
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
-    osc.type = 'square'; // Aggressive sound
+    osc.type = 'square';
     osc.frequency.setValueAtTime(220, audioCtx.currentTime);
     osc.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 0.1);
-    gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+    gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
     gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.1);
     osc.connect(gain); gain.connect(audioCtx.destination);
     osc.start(); osc.stop(audioCtx.currentTime + 0.1);
@@ -73,16 +72,19 @@ let player = { x: 450, y: 275, size: 24, speed: 4.8, hasAmmo: true, alive: true,
 let enemies = [], projectiles = [], enemyLasers = [], particles = [];
 let score = 0, currentLevel = 1, shake = 0, weapon = WEAPONS.PISTOL;
 let keys = {}, joyX = 0, joyY = 0, touchId = null;
-let levelLoading = true; 
+let levelLoading = false; 
 
 function initLevel(lvl) {
     levelLoading = true; 
     enemies = []; projectiles = []; enemyLasers = []; particles = [];
     player.x = 450; player.y = 275; player.hasAmmo = true; player.alive = true;
     msgOverlay.innerHTML = "";
-    let count = (lvl % 10 === 0) ? 1 : 2 + Math.floor(lvl * 0.5);
+    
+    let isBossLvl = lvl % 10 === 0;
+    let count = isBossLvl ? 1 : 2 + Math.floor(lvl * 0.5);
+    
     for(let i=0; i < count; i++) {
-        if(lvl % 10 === 0) {
+        if(isBossLvl) {
             enemies.push({ x: 100, y: 100, size: 60, speed: 1.2, hp: 8, isBoss: true, alive: true, lastShot: Date.now(), chargeStart: 0, isCharging: false });
         } else {
             let ex = Math.random() > 0.5 ? -50 : 950;
@@ -91,7 +93,7 @@ function initLevel(lvl) {
         }
     }
     document.getElementById('lvl').innerText = lvl;
-    setTimeout(() => { levelLoading = false; }, 100);
+    setTimeout(() => { levelLoading = false; }, 200);
 }
 
 function spawnParticles(x, y, color) {
@@ -102,6 +104,7 @@ function spawnParticles(x, y, color) {
 
 function respawn() { score = 0; currentLevel = 1; document.getElementById('score').innerText = "0"; initLevel(1); }
 
+// --- FIXED INPUTS ---
 window.onkeydown = e => keys[e.key.toLowerCase()] = true;
 window.onkeyup = e => keys[e.key.toLowerCase()] = false;
 
@@ -112,15 +115,46 @@ window.addEventListener('mousemove', e => {
     player.angle = Math.atan2(mouseY - player.y, mouseX - player.x);
 });
 
-canvas.onmousedown = () => shoot();
+canvas.addEventListener('mousedown', () => shoot());
+
+// FIXED JOYSTICK
+window.addEventListener('touchstart', e => {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    for(let t of e.changedTouches) {
+        if(t.clientX < window.innerWidth/2 && touchId === null) {
+            touchId = t.identifier;
+            const joy = document.getElementById('joystick-container');
+            joy.style.display = 'block';
+            joy.style.left = (t.clientX - 50)+'px'; joy.style.top = (t.clientY - 50)+'px';
+        } else { shoot(); }
+    }
+}, {passive: false});
+
+window.addEventListener('touchmove', e => {
+    for(let t of e.changedTouches) if(t.identifier === touchId) {
+        const joy = document.getElementById('joystick-container');
+        const r = joy.getBoundingClientRect();
+        let dx = t.clientX - (r.left + 50), dy = t.clientY - (r.top + 50);
+        let d = Math.hypot(dx, dy);
+        if(d > 40) { dx *= 40/d; dy *= 40/d; }
+        document.getElementById('joystick-knob').style.transform = `translate(${dx}px, ${dy}px)`;
+        joyX = dx/40; joyY = dy/40;
+    }
+}, {passive: false});
+
+window.addEventListener('touchend', e => {
+    for(let t of e.changedTouches) if(t.identifier === touchId) { 
+        touchId = null; joyX = 0; joyY = 0; 
+        document.getElementById('joystick-container').style.display = 'none';
+        document.getElementById('joystick-knob').style.transform = `translate(0px, 0px)`;
+    }
+});
 
 function shoot() {
-    if(!player.hasAmmo || !player.alive) return;
+    if(!player.hasAmmo || !player.alive || levelLoading) return;
     if (audioCtx.state === 'suspended') audioCtx.resume();
-    
-    playShootSound(); // Sound effect
-    shake = 20;        // Screen shake intensity
-
+    playShootSound();
+    shake = 18;
     for(let i=0; i<weapon.pellets; i++) {
         let a = player.angle + (Math.random()-0.5) * weapon.spread;
         projectiles.push({ x: player.x, y: player.y, vx: Math.cos(a)*weapon.speed, vy: Math.sin(a)*weapon.speed, active: true, onGround: false, piercing: weapon.piercing });
@@ -128,19 +162,20 @@ function shoot() {
     player.hasAmmo = false; player.flash = 6;
 }
 
+// --- CORE LOGIC ---
 function update() {
     if(!player.alive || levelLoading) return;
-    if(shake > 0) shake *= 0.85; // Decay shake over time
+    if(shake > 0) shake *= 0.88;
 
-    let mx = (keys['d']?1 : keys['a']?-1 : 0);
-    let my = (keys['s']?1 : keys['w']?-1 : 0);
+    let mx = joyX || (keys['d']?1 : keys['a']?-1 : 0);
+    let my = joyY || (keys['s']?1 : keys['w']?-1 : 0);
     player.x = Math.max(20, Math.min(880, player.x + mx * player.speed));
     player.y = Math.max(20, Math.min(530, player.y + my * player.speed));
 
     particles.forEach((p, i) => { p.x += p.vx; p.y += p.vy; p.life -= 0.02; if(p.life <= 0) particles.splice(i, 1); });
 
     projectiles.forEach(p => {
-        if(p.active && !p.onGround) {
+        if(!p.onGround) {
             p.x += p.vx; p.y += p.vy;
             enemies.forEach(en => {
                 if(en.alive && Math.hypot(p.x-en.x, p.y-en.y) < en.size) {
@@ -149,19 +184,15 @@ function update() {
                     if(!p.piercing) p.onGround = true;
                 }
             });
-            if(p.x < 10 || p.x > 890 || p.y < 10 || p.y > 540) { 
-                p.x = Math.max(10, Math.min(890, p.x));
-                p.y = Math.max(10, Math.min(540, p.y));
-                p.onGround = true; 
-            }
+            if(p.x<10 || p.x>890 || p.y<10 || p.y>540) { p.onGround = true; p.x = Math.max(10,Math.min(890,p.x)); p.y = Math.max(10,Math.min(540,p.y)); }
         }
-        if(p.onGround && Math.hypot(player.x-p.x, player.y-p.y) < 35) {
-            player.hasAmmo = true; projectiles = []; playPing();
-        }
+        if(p.onGround && Math.hypot(player.x-p.x, player.y-p.y) < 35) { player.hasAmmo = true; projectiles = []; playPing(); }
     });
 
+    let aliveCount = 0;
     enemies.forEach(en => {
         if(!en.alive) return;
+        aliveCount++;
         let a = Math.atan2(player.y-en.y, player.x-en.x);
         en.x += Math.cos(a)*en.speed; en.y += Math.sin(a)*en.speed;
         if(en.isBoss) {
@@ -181,31 +212,30 @@ function update() {
         if(l.x<0 || l.x>900 || l.y<0 || l.y>550) enemyLasers.splice(i, 1);
     });
 
+    // FIXED: LEVEL UP CHECK
+    if(aliveCount === 0 && !levelLoading) { 
+        score += currentLevel * 50; currentLevel++; 
+        document.getElementById('score').innerText = score;
+        initLevel(currentLevel); 
+    }
+
     if(!player.alive) { 
         msgOverlay.innerHTML = `<div style="background: rgba(0,0,0,0.85); padding: 40px; border-radius: 20px; border: 2px solid var(--danger);"><div style="color:var(--danger); font-size: 4rem; margin-bottom: 10px;">WASTED</div><button onclick="respawn()" style="pointer-events:auto; padding:15px 40px; cursor:pointer; background: var(--accent); color: white; border: none; border-radius: 8px; font-weight: bold;">RESPAWN</button></div>`; 
     }
 }
 
 function drawEntity(x, y, angle, color, size) {
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(angle);
-    ctx.fillStyle = color;
-    ctx.fillRect(-size/2, -size/2, size, size);
-    ctx.fillStyle = "white";
-    ctx.fillRect(size/4, -size/3, size/4, size/4);
-    ctx.fillRect(size/4, size/12, size/4, size/4);
+    ctx.save(); ctx.translate(x, y); ctx.rotate(angle);
+    ctx.fillStyle = color; ctx.fillRect(-size/2, -size/2, size, size);
+    ctx.fillStyle = "white"; ctx.fillRect(size/4, -size/3, size/4, size/4); ctx.fillRect(size/4, size/12, size/4, size/4);
     ctx.restore();
 }
 
 function draw() {
     ctx.save();
-    // THE SHAKE LOGIC
-    if(shake > 0.5) {
-        ctx.translate((Math.random()-0.5)*shake, (Math.random()-0.5)*shake);
-    }
-    
+    if(shake > 0.5) ctx.translate((Math.random()-0.5)*shake, (Math.random()-0.5)*shake);
     ctx.clearRect(0, 0, 900, 550);
+
     particles.forEach(p => { ctx.fillStyle = p.color; ctx.globalAlpha = p.life; ctx.fillRect(p.x, p.y, 4, 4); });
     ctx.globalAlpha = 1.0;
 
@@ -214,9 +244,19 @@ function draw() {
         ctx.beginPath(); ctx.arc(p.x, p.y, p.onGround ? 7 : 8, 0, Math.PI*2); ctx.fill();
     });
 
-    enemies.forEach(en => { 
-        if(en.alive) drawEntity(en.x, en.y, Math.atan2(player.y-en.y, player.x-en.x), "#f85149", en.size); 
-    });
+    enemyLasers.forEach(l => { ctx.fillStyle = "#ff00ff"; ctx.fillRect(l.x-8, l.y-3, 16, 6); });
+
+    enemies.forEach(en => { if(en.alive) {
+        let a = Math.atan2(player.y-en.y, player.x-en.x);
+        if(en.isBoss && en.isCharging) {
+            let ct = Date.now() - en.chargeStart;
+            ctx.beginPath(); if(ct < 900) ctx.setLineDash([5, 5]);
+            ctx.moveTo(en.x, en.y); ctx.lineTo(en.x + Math.cos(a)*1000, en.y + Math.sin(a)*1000);
+            ctx.strokeStyle = ct > 900 ? "red" : "rgba(255,0,0,0.3)";
+            ctx.lineWidth = ct > 900 ? 5 : 2; ctx.stroke(); ctx.setLineDash([]);
+        }
+        drawEntity(en.x, en.y, a, "#f85149", en.size);
+    }});
 
     if(player.alive) drawEntity(player.x, player.y, player.angle, "#58a6ff", 24);
 
