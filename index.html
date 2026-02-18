@@ -1,42 +1,3 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>One-Shot Extraction | Pro GitHub Build</title>
-    <style>
-        :root { --bg: #0d1117; --panel: #161b22; --accent: #58a6ff; --gold: #d29922; --danger: #f85149; --sniper: #00ffff; --shotgun: #ffaa00; }
-        body { margin: 0; background: var(--bg); color: white; font-family: -apple-system, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; touch-action: none; }
-        
-        .ui-layer { position: absolute; top: 20px; display: flex; gap: 10px; z-index: 10; pointer-events: none; }
-        .card { background: var(--panel); padding: 10px 15px; border-radius: 8px; border: 1px solid #30363d; font-weight: bold; pointer-events: auto; }
-        
-        .wep-btn { cursor: pointer; border: 1px solid #30363d; background: #21262d; color: #8b949e; transition: 0.2s; }
-        .wep-btn.active { border-color: var(--accent); color: white; box-shadow: 0 0 10px rgba(88, 166, 255, 0.3); }
-
-        canvas { background: #000; border: 2px solid #30363d; border-radius: 12px; max-width: 95vw; max-height: 70vh; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
-        
-        #joystick-container { position: absolute; width: 100px; height: 100px; background: rgba(255,255,255,0.1); border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); display: none; pointer-events: none; }
-        #joystick-knob { position: absolute; width: 40px; height: 40px; background: var(--accent); border-radius: 50%; left: 30px; top: 30px; }
-        
-        #msg-overlay { position: absolute; font-size: 3rem; font-weight: 900; text-align: center; pointer-events: none; text-shadow: 0 0 20px black; }
-    </style>
-</head>
-<body>
-
-    <div class="ui-layer">
-        <div class="card">LVL: <span id="lvl">1</span></div>
-        <div class="card">SCORE: <span id="score">0</span></div>
-        <button id="wep-P" class="card wep-btn active" onclick="setWeapon('PISTOL')">PISTOL</button>
-        <button id="wep-S" class="card wep-btn" onclick="setWeapon('SHOTGUN')">SHOTGUN</button>
-        <button id="wep-X" class="card wep-btn" onclick="setWeapon('SNIPER')">SNIPER</button>
-    </div>
-
-    <div id="msg-overlay"></div>
-    <canvas id="gameCanvas" width="900" height="550"></canvas>
-    <div id="joystick-container"><div id="joystick-knob"></div></div>
-
-<script>
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const msgOverlay = document.getElementById('msg-overlay');
@@ -53,23 +14,28 @@ let player = { x: 450, y: 275, size: 24, speed: 4.8, hasAmmo: true, alive: true,
 let enemies = [], projectiles = [], enemyLasers = [];
 let score = 0, currentLevel = 1, shake = 0, weapon = WEAPONS.PISTOL;
 let keys = {}, joyX = 0, joyY = 0, touchId = null;
+let levelLoading = true; // Prevents the "Instant Win" bug
 
 // --- INITIALIZATION ---
 function initLevel(lvl) {
+    levelLoading = true; 
     enemies = []; projectiles = []; enemyLasers = [];
     player.x = 450; player.y = 275; player.hasAmmo = true;
     
     if (lvl % 10 === 0) { // BOSS LEVEL
-        enemies.push({ x: 100, y: 100, size: 60, speed: 1.2, hp: 5, isBoss: true, lastShot: 0 });
+        enemies.push({ x: 100, y: 100, size: 60, speed: 1.2, hp: 5, isBoss: true, alive: true, lastShot: 0 });
     } else { // NORMAL
-        for(let i=0; i < 2 + Math.floor(lvl * 1.2); i++) {
-            let edge = Math.floor(Math.random() * 4);
-            let ex = edge % 2 === 0 ? Math.random() * 900 : (edge === 1 ? 950 : -50);
-            let ey = edge % 2 !== 0 ? Math.random() * 550 : (edge === 0 ? -50 : 600);
-            enemies.push({ x: ex, y: ey, size: 22, speed: 1.4 + (lvl * 0.1), hp: 1, isBoss: false });
+        for(let i=0; i < 2 + Math.floor(lvl * 0.5); i++) {
+            // Spawn enemies at edges so they don't appear on top of player
+            let ex = Math.random() > 0.5 ? -50 : 950;
+            let ey = Math.random() * 550;
+            enemies.push({ x: ex, y: ey, size: 22, speed: 1.2 + (lvl * 0.05), hp: 1, isBoss: false, alive: true });
         }
     }
+    
     document.getElementById('lvl').innerText = lvl;
+    // Small delay to let the engine realize enemies exist
+    setTimeout(() => { levelLoading = false; }, 100);
 }
 
 // --- INPUTS ---
@@ -83,6 +49,7 @@ canvas.onmousemove = e => {
 
 canvas.onmousedown = () => shoot();
 
+// Joystick & Touch Fix
 window.addEventListener('touchstart', e => {
     for(let t of e.changedTouches) {
         if(t.clientX < window.innerWidth/2 && touchId === null) {
@@ -91,8 +58,6 @@ window.addEventListener('touchstart', e => {
             document.getElementById('joystick-container').style.left = (t.clientX - 50)+'px';
             document.getElementById('joystick-container').style.top = (t.clientY - 50)+'px';
         } else {
-            const r = canvas.getBoundingClientRect();
-            player.angle = Math.atan2((t.clientY - r.top)*(550/r.height) - player.y, (t.clientX - r.left)*(900/r.width) - player.x);
             shoot();
         }
     }
@@ -136,16 +101,22 @@ function shoot() {
 
 // --- CORE ENGINE ---
 function update() {
-    if(!player.alive) return;
+    if(!player.alive || levelLoading) return;
     if(shake > 0) shake *= 0.9;
 
-    // Movement
-    let mx = joyX || (keys['d']?1 : keys['a']?-1 : 0);
-    let my = joyY || (keys['s']?1 : keys['w']?-1 : 0);
+    // Movement Fix
+    let mx = 0, my = 0;
+    if (joyX !== 0 || joyY !== 0) { mx = joyX; my = joyY; }
+    else {
+        if (keys['d'] || keys['arrowright']) mx = 1;
+        if (keys['a'] || keys['arrowleft']) mx = -1;
+        if (keys['w'] || keys['arrowup']) my = -1;
+        if (keys['s'] || keys['arrowdown']) my = 1;
+    }
     player.x = Math.max(20, Math.min(880, player.x + mx * player.speed));
     player.y = Math.max(20, Math.min(530, player.y + my * player.speed));
 
-    // Projectile vs Enemy
+    // Bullet vs Enemy
     projectiles.forEach(p => {
         if(p.active && !p.onGround) {
             p.x += p.vx; p.y += p.vy;
@@ -164,28 +135,38 @@ function update() {
     });
 
     // Enemy AI
-    let activeEnemies = 0;
+    let aliveCount = 0;
     enemies.forEach(en => {
         if(!en.alive) return;
-        activeEnemies++;
+        aliveCount++;
         let a = Math.atan2(player.y-en.y, player.x-en.x);
         en.x += Math.cos(a)*en.speed; en.y += Math.sin(a)*en.speed;
         
-        if(en.isBoss && Date.now() - en.lastShot > 500) {
+        if(en.isBoss && Date.now() - en.lastShot > 600) {
             enemyLasers.push({ x: en.x, y: en.y, vx: Math.cos(a)*9, vy: Math.sin(a)*9 });
             en.lastShot = Date.now();
         }
         if(Math.hypot(player.x-en.x, player.y-en.y) < en.size) player.alive = false;
     });
 
+    // Enemy Lasers
     enemyLasers.forEach((l, i) => {
         l.x += l.vx; l.y += l.vy;
         if(Math.hypot(l.x-player.x, l.y-player.y) < 15) player.alive = false;
         if(l.x<0 || l.x>900 || l.y<0 || l.y>550) enemyLasers.splice(i, 1);
     });
 
-    if(activeEnemies === 0) { score += currentLevel*100; currentLevel++; initLevel(currentLevel); document.getElementById('score').innerText = score; }
-    if(!player.alive) { msgOverlay.innerHTML = `<span style="color:var(--danger)">WASTED</span><br><button onclick="location.reload()" style="pointer-events:auto; padding:10px; cursor:pointer">RETRY</button>`; }
+    // Win Check
+    if(aliveCount === 0 && !levelLoading) { 
+        score += currentLevel * 50; 
+        currentLevel++; 
+        initLevel(currentLevel); 
+        document.getElementById('score').innerText = score; 
+    }
+
+    if(!player.alive) { 
+        msgOverlay.innerHTML = `<span style="color:var(--danger)">WASTED</span><br><button onclick="location.reload()" style="pointer-events:auto; padding:10px; cursor:pointer">RETRY</button>`; 
+    }
 }
 
 function drawAgent(x, y, angle, color, size) {
@@ -217,7 +198,11 @@ function draw() {
     });
 
     if(player.alive) {
-        if(player.flash > 0) { ctx.fillStyle = `rgba(255,255,255,${player.flash/6})`; ctx.beginPath(); ctx.arc(player.x+Math.cos(player.angle)*20, player.y+Math.sin(player.angle)*20, 40, 0, Math.PI*2); ctx.fill(); player.flash--; }
+        if(player.flash > 0) { 
+            ctx.fillStyle = `rgba(255,255,255,${player.flash/6})`; 
+            ctx.beginPath(); ctx.arc(player.x+Math.cos(player.angle)*25, player.y+Math.sin(player.angle)*25, 45, 0, Math.PI*2); 
+            ctx.fill(); player.flash--; 
+        }
         drawAgent(player.x, player.y, player.angle, "#58a6ff", 24);
     }
 
@@ -228,6 +213,3 @@ function draw() {
 
 initLevel(1);
 draw();
-</script>
-</body>
-</html>
