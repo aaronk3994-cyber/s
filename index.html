@@ -8,7 +8,6 @@
         :root { --bg: #0d1117; --panel: #161b22; --accent: #58a6ff; --gold: #d29922; --danger: #f85149; }
         body { margin: 0; background: var(--bg); color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; touch-action: none; }
         
-        /* UI Header */
         .ui-layer { position: absolute; top: 20px; display: flex; gap: 10px; z-index: 10; }
         .card { background: var(--panel); padding: 10px 15px; border-radius: 8px; border: 1px solid #30363d; font-weight: bold; }
         
@@ -17,11 +16,10 @@
 
         canvas { background: #000; border: 2px solid #30363d; border-radius: 12px; max-width: 95vw; max-height: 70vh; }
         
-        /* Joystick Styles */
         #joystick-container { position: absolute; width: 100px; height: 100px; background: rgba(255,255,255,0.1); border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); display: none; pointer-events: none; }
         #joystick-knob { position: absolute; width: 40px; height: 40px; background: var(--accent); border-radius: 50%; left: 30px; top: 30px; }
         
-        #msg-overlay { position: absolute; font-size: 3rem; font-weight: 900; text-align: center; pointer-events: none; text-shadow: 0 0 20px black; z-index: 20; }
+        #msg-overlay { position: absolute; font-weight: 900; text-align: center; pointer-events: none; text-shadow: 0 0 20px black; z-index: 20; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
     </style>
 </head>
 <body>
@@ -61,10 +59,14 @@ let levelLoading = true;
 function initLevel(lvl) {
     levelLoading = true; 
     enemies = []; projectiles = []; enemyLasers = [];
-    player.x = 450; player.y = 275; player.hasAmmo = true;
+    player.x = 450; player.y = 275; player.hasAmmo = true; player.alive = true;
+    msgOverlay.innerHTML = "";
     
     if (lvl % 10 === 0) { 
-        enemies.push({ x: 100, y: 100, size: 60, speed: 1.2, hp: 5, isBoss: true, alive: true, lastShot: 0 });
+        enemies.push({ 
+            x: 100, y: 100, size: 60, speed: 1.2, hp: 5, isBoss: true, alive: true, 
+            lastShot: Date.now(), chargeStart: 0, isCharging: false 
+        });
     } else {
         for(let i=0; i < 2 + Math.floor(lvl * 0.5); i++) {
             let ex = Math.random() > 0.5 ? -50 : 950;
@@ -72,9 +74,15 @@ function initLevel(lvl) {
             enemies.push({ x: ex, y: ey, size: 22, speed: 1.2 + (lvl * 0.05), hp: 1, isBoss: false, alive: true });
         }
     }
-    
     document.getElementById('lvl').innerText = lvl;
     setTimeout(() => { levelLoading = false; }, 100);
+}
+
+function respawn() { 
+    score = 0; 
+    currentLevel = 1; 
+    document.getElementById('score').innerText = "0"; 
+    initLevel(1); 
 }
 
 // --- INPUTS ---
@@ -94,11 +102,8 @@ window.addEventListener('touchstart', e => {
             touchId = t.identifier;
             const joy = document.getElementById('joystick-container');
             joy.style.display = 'block';
-            joy.style.left = (t.clientX - 50)+'px';
-            joy.style.top = (t.clientY - 50)+'px';
-        } else {
-            shoot();
-        }
+            joy.style.left = (t.clientX - 50)+'px'; joy.style.top = (t.clientY - 50)+'px';
+        } else { shoot(); }
     }
 }, {passive: false});
 
@@ -143,14 +148,8 @@ function update() {
     if(!player.alive || levelLoading) return;
     if(shake > 0) shake *= 0.9;
 
-    let mx = 0, my = 0;
-    if (joyX !== 0 || joyY !== 0) { mx = joyX; my = joyY; }
-    else {
-        if (keys['d'] || keys['arrowright']) mx = 1;
-        if (keys['a'] || keys['arrowleft']) mx = -1;
-        if (keys['w'] || keys['arrowup']) my = -1;
-        if (keys['s'] || keys['arrowdown']) my = 1;
-    }
+    let mx = joyX || (keys['d']?1 : keys['a']?-1 : 0);
+    let my = joyY || (keys['s']?1 : keys['w']?-1 : 0);
     player.x = Math.max(20, Math.min(880, player.x + mx * player.speed));
     player.y = Math.max(20, Math.min(530, player.y + my * player.speed));
 
@@ -178,9 +177,15 @@ function update() {
         let a = Math.atan2(player.y-en.y, player.x-en.x);
         en.x += Math.cos(a)*en.speed; en.y += Math.sin(a)*en.speed;
         
-        if(en.isBoss && Date.now() - en.lastShot > 600) {
-            enemyLasers.push({ x: en.x, y: en.y, vx: Math.cos(a)*9, vy: Math.sin(a)*9 });
-            en.lastShot = Date.now();
+        if(en.isBoss) {
+            let now = Date.now();
+            if(!en.isCharging && now - en.lastShot > 1500) {
+                en.isCharging = true; en.chargeStart = now;
+            }
+            if(en.isCharging && now - en.chargeStart > 1200) {
+                enemyLasers.push({ x: en.x, y: en.y, vx: Math.cos(a)*10, vy: Math.sin(a)*10 });
+                en.lastShot = now; en.isCharging = false; shake = 10;
+            }
         }
         if(Math.hypot(player.x-en.x, player.y-en.y) < en.size) player.alive = false;
     });
@@ -192,13 +197,16 @@ function update() {
     });
 
     if(aliveCount === 0 && !levelLoading) { 
-        score += currentLevel * 50; currentLevel++; 
-        initLevel(currentLevel); 
-        document.getElementById('score').innerText = score; 
+        score += currentLevel * 50; currentLevel++; initLevel(currentLevel); document.getElementById('score').innerText = score; 
     }
 
     if(!player.alive) { 
-        msgOverlay.innerHTML = `<span style="color:var(--danger)">WASTED</span><br><button onclick="location.reload()" style="pointer-events:auto; padding:10px; cursor:pointer">RETRY</button>`; 
+        msgOverlay.innerHTML = `
+            <div style="background: rgba(0,0,0,0.85); padding: 40px; border-radius: 20px; border: 2px solid var(--danger);">
+                <div style="color:var(--danger); font-size: 4rem; margin-bottom: 10px;">WASTED</div>
+                <div style="font-size: 1.2rem; margin-bottom: 20px; color: white;">FINAL SCORE: ${score}</div>
+                <button onclick="respawn()" style="pointer-events:auto; padding:15px 40px; cursor:pointer; background: var(--accent); color: white; border: none; border-radius: 8px; font-weight: bold;">RESPAWN</button>
+            </div>`; 
     }
 }
 
@@ -214,19 +222,33 @@ function draw() {
     if(shake > 0.5) ctx.translate(Math.random()*shake-shake/2, Math.random()*shake-shake/2);
     ctx.clearRect(0, 0, 900, 550);
 
-    enemyLasers.forEach(l => { ctx.fillStyle = "#ff00ff"; ctx.fillRect(l.x-6, l.y-2, 12, 4); });
+    let pulse = Math.sin(Date.now() * 0.01) * 2;
+
+    enemyLasers.forEach(l => { ctx.fillStyle = "#ff00ff"; ctx.fillRect(l.x-8, l.y-3, 16, 6); });
     projectiles.forEach(p => {
         ctx.fillStyle = p.onGround ? "gold" : weapon.color;
-        ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.onGround ? 6 : 6 + pulse, 0, Math.PI*2); ctx.fill();
     });
 
     enemies.forEach(en => { 
         if(en.alive) {
+            let angleToPlayer = Math.atan2(player.y-en.y, player.x-en.x);
             if(en.isBoss) {
+                if(en.isCharging) {
+                    let chargeTime = Date.now() - en.chargeStart;
+                    ctx.beginPath();
+                    if(chargeTime < 900) ctx.setLineDash([5, 5]); 
+                    ctx.moveTo(en.x, en.y);
+                    ctx.lineTo(en.x + Math.cos(angleToPlayer)*1000, en.y + Math.sin(angleToPlayer)*1000);
+                    ctx.strokeStyle = chargeTime > 900 ? "rgba(255, 0, 0, 1)" : "rgba(255, 0, 0, 0.4)";
+                    ctx.lineWidth = chargeTime > 900 ? 4 : 2;
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                }
                 ctx.strokeStyle = "red"; ctx.lineWidth = 4; ctx.strokeRect(en.x-30, en.y-30, 60, 60);
                 ctx.fillStyle = "red"; ctx.fillRect(en.x-30, en.y-45, (en.hp/5)*60, 5);
             }
-            drawAgent(en.x, en.y, Math.atan2(player.y-en.y, player.x-en.x), "#f85149", en.size); 
+            drawAgent(en.x, en.y, angleToPlayer, "#f85149", en.size); 
         }
     });
 
