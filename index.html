@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>One-Shot | Danger Zone Build</title>
+    <title>One-Shot | High-Speed Grid</title>
     <style>
         :root { --bg: #0d1117; --panel: #161b22; --accent: #58a6ff; --gold: #d29922; --danger: #f85149; }
         body { margin: 0; background: var(--bg); color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; touch-action: none; }
         .ui-layer { position: absolute; top: 20px; display: flex; gap: 10px; z-index: 10; }
         .card { background: var(--panel); padding: 10px 15px; border-radius: 8px; border: 1px solid #30363d; font-weight: bold; }
-        .wep-btn { cursor: pointer; border: 1px solid #30363d; background: #21262d; color: #8b949e; transition: 0.2s; }
+        .wep-btn { cursor: pointer; border: 1px solid #30363d; background: #21262d; color: #8b949e; transition: 0.2s; padding: 10px 15px; border-radius: 8px; font-weight: bold; }
         .wep-btn.active { border-color: var(--accent); color: white; box-shadow: 0 0 10px rgba(88, 166, 255, 0.3); }
         canvas { background: #000; border: 2px solid #30363d; border-radius: 12px; max-width: 95vw; max-height: 70vh; cursor: crosshair; }
         #joystick-container { position: absolute; width: 100px; height: 100px; background: rgba(255,255,255,0.1); border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); display: none; pointer-events: none; z-index: 100; }
@@ -22,9 +22,9 @@
     <div class="ui-layer">
         <div class="card">LVL: <span id="lvl">1</span></div>
         <div class="card">SCORE: <span id="score">0</span></div>
-        <button id="wep-P" class="card wep-btn active" onclick="setWeapon('PISTOL')">P</button>
-        <button id="wep-S" class="card wep-btn" onclick="setWeapon('SHOTGUN')">S</button>
-        <button id="wep-X" class="card wep-btn" onclick="setWeapon('SNIPER')">X</button>
+        <button id="wep-P" class="wep-btn active" onclick="setWeapon('PISTOL')">P</button>
+        <button id="wep-S" class="wep-btn" onclick="setWeapon('SHOTGUN')">S</button>
+        <button id="wep-X" class="wep-btn" onclick="setWeapon('SNIPER')">X</button>
     </div>
 
     <div id="msg-overlay"></div>
@@ -48,7 +48,6 @@ function playShootSound() {
     osc.connect(gain); gain.connect(audioCtx.destination);
     osc.start(); osc.stop(audioCtx.currentTime + 0.1);
 }
-
 function playPing() {
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
@@ -78,17 +77,16 @@ function initLevel(lvl) {
     enemies = []; projectiles = []; enemyLasers = []; particles = [];
     player.x = 450; player.y = 275; player.hasAmmo = true; player.alive = true;
     msgOverlay.innerHTML = "";
-    
     let isBossLvl = lvl % 10 === 0;
     let count = isBossLvl ? 1 : 2 + Math.floor(lvl * 0.5);
-    
     for(let i=0; i < count; i++) {
         if(isBossLvl) {
-            enemies.push({ x: 100, y: 100, size: 60, speed: 1.2, hp: 8, isBoss: true, alive: true, lastShot: Date.now(), chargeStart: 0, isCharging: false });
+            enemies.push({ x: 100, y: 100, size: 60, speed: 1.6, hp: 8, isBoss: true, alive: true, lastShot: Date.now(), chargeStart: 0, isCharging: false });
         } else {
             let ex = Math.random() > 0.5 ? -50 : 950;
             let ey = Math.random() * 550;
-            enemies.push({ x: ex, y: ey, size: 22, speed: 1.2 + (lvl * 0.05), hp: 1, isBoss: false, alive: true });
+            // INCREASED BASE SPEED FROM 1.2 TO 1.8
+            enemies.push({ x: ex, y: ey, size: 22, speed: 1.8 + (lvl * 0.08), hp: 1, isBoss: false, alive: true, inAura: false });
         }
     }
     document.getElementById('lvl').innerText = lvl;
@@ -105,14 +103,12 @@ function respawn() { score = 0; currentLevel = 1; document.getElementById('score
 
 window.onkeydown = e => keys[e.key.toLowerCase()] = true;
 window.onkeyup = e => keys[e.key.toLowerCase()] = false;
-
 window.addEventListener('mousemove', e => {
     const r = canvas.getBoundingClientRect();
     const mouseX = (e.clientX - r.left) * (canvas.width / r.width);
     const mouseY = (e.clientY - r.top) * (canvas.height / r.height);
     player.angle = Math.atan2(mouseY - player.y, mouseX - player.x);
 });
-
 canvas.addEventListener('mousedown', () => shoot());
 
 window.addEventListener('touchstart', e => {
@@ -125,7 +121,6 @@ window.addEventListener('touchstart', e => {
         } else { shoot(); }
     }
 }, {passive: false});
-
 window.addEventListener('touchmove', e => {
     for(let t of e.changedTouches) if(t.identifier === touchId) {
         const joy = document.getElementById('joystick-container');
@@ -137,17 +132,14 @@ window.addEventListener('touchmove', e => {
         joyX = dx/40; joyY = dy/40;
     }
 }, {passive: false});
-
 window.addEventListener('touchend', e => {
     for(let t of e.changedTouches) if(t.identifier === touchId) { 
-        touchId = null; joyX = 0; joyY = 0; 
-        document.getElementById('joystick-container').style.display = 'none';
+        touchId = null; joyX = 0; joyY = 0; document.getElementById('joystick-container').style.display = 'none';
     }
 });
 
 function shoot() {
     if(!player.hasAmmo || !player.alive || levelLoading) return;
-    if (audioCtx.state === 'suspended') audioCtx.resume();
     playShootSound(); shake = 18;
     for(let i=0; i<weapon.pellets; i++) {
         let a = player.angle + (Math.random()-0.5) * weapon.spread;
@@ -188,15 +180,12 @@ function update() {
         aliveCount++;
         let dist = Math.hypot(player.x-en.x, player.y-en.y);
         let a = Math.atan2(player.y-en.y, player.x-en.x);
-        
         en.x += Math.cos(a)*en.speed; en.y += Math.sin(a)*en.speed;
 
-        // NEW: Proximity Laser Aura for Normal Enemies
         if(!en.isBoss) {
-            let auraRadius = en.size * 2.5;
-            if(dist < auraRadius) player.alive = false;
+            let auraRadius = en.size * 3.5;
+            if(dist < auraRadius) { en.inAura = true; player.alive = false; } else { en.inAura = false; }
         }
-
         if(en.isBoss) {
             let now = Date.now();
             if(!en.isCharging && now - en.lastShot > 1800) { en.isCharging = true; en.chargeStart = now; }
@@ -215,9 +204,7 @@ function update() {
     });
 
     if(aliveCount === 0 && !levelLoading) { 
-        score += currentLevel * 50; currentLevel++; 
-        document.getElementById('score').innerText = score;
-        initLevel(currentLevel); 
+        score += currentLevel * 50; currentLevel++; document.getElementById('score').innerText = score; initLevel(currentLevel); 
     }
 
     if(!player.alive) { 
@@ -225,17 +212,25 @@ function update() {
     }
 }
 
-function drawEntity(x, y, angle, color, size, isEnemy) {
+function drawEntity(x, y, angle, color, size) {
     ctx.save(); ctx.translate(x, y); ctx.rotate(angle);
     ctx.fillStyle = color; ctx.fillRect(-size/2, -size/2, size, size);
     ctx.fillStyle = "white"; ctx.fillRect(size/4, -size/3, size/4, size/4); ctx.fillRect(size/4, size/12, size/4, size/4);
     ctx.restore();
 }
 
+function drawGrid() {
+    ctx.strokeStyle = "#161b22";
+    ctx.lineWidth = 1;
+    for(let i=0; i<900; i+=50) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,550); ctx.stroke(); }
+    for(let j=0; j<550; j+=50) { ctx.beginPath(); ctx.moveTo(0,j); ctx.lineTo(900,j); ctx.stroke(); }
+}
+
 function draw() {
     ctx.save();
     if(shake > 0.5) ctx.translate((Math.random()-0.5)*shake, (Math.random()-0.5)*shake);
     ctx.clearRect(0, 0, 900, 550);
+    drawGrid();
 
     particles.forEach(p => { ctx.fillStyle = p.color; ctx.globalAlpha = p.life; ctx.fillRect(p.x, p.y, 4, 4); });
     ctx.globalAlpha = 1.0;
@@ -249,18 +244,19 @@ function draw() {
 
     enemies.forEach(en => { if(en.alive) {
         let a = Math.atan2(player.y-en.y, player.x-en.x);
-        
-        // DRAW DANGER AURA
         if(!en.isBoss) {
-            ctx.beginPath();
-            ctx.arc(en.x, en.y, en.size * 2.5, 0, Math.PI*2);
-            ctx.strokeStyle = "rgba(248, 81, 73, 0.4)";
-            ctx.setLineDash([5, 5]);
-            ctx.lineWidth = 2;
-            ctx.stroke();
-            ctx.setLineDash([]);
+            let pulse = Math.sin(Date.now() * 0.005) * 5;
+            let radius = (en.size * 3.5) + pulse;
+            ctx.beginPath(); ctx.arc(en.x, en.y, radius, 0, Math.PI*2);
+            if (en.inAura) {
+                ctx.strokeStyle = (Math.floor(Date.now()/50) % 2 === 0) ? "red" : "white";
+                ctx.setLineDash([]); ctx.lineWidth = 4;
+            } else {
+                ctx.strokeStyle = "rgba(248, 81, 73, 0.3)";
+                ctx.setLineDash([8, 4]); ctx.lineWidth = 1;
+            }
+            ctx.stroke(); ctx.setLineDash([]);
         }
-
         if(en.isBoss && en.isCharging) {
             let ct = Date.now() - en.chargeStart;
             ctx.beginPath(); if(ct < 900) ctx.setLineDash([5, 5]);
@@ -268,11 +264,10 @@ function draw() {
             ctx.strokeStyle = ct > 900 ? "red" : "rgba(255,0,0,0.3)";
             ctx.lineWidth = ct > 900 ? 5 : 2; ctx.stroke(); ctx.setLineDash([]);
         }
-        drawEntity(en.x, en.y, a, "#f85149", en.size, true);
+        drawEntity(en.x, en.y, a, "#f85149", en.size);
     }});
 
-    if(player.alive) drawEntity(player.x, player.y, player.angle, "#58a6ff", 24, false);
-
+    if(player.alive) drawEntity(player.x, player.y, player.angle, "#58a6ff", 24);
     ctx.restore();
     update();
     requestAnimationFrame(draw);
